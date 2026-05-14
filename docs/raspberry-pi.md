@@ -1,54 +1,44 @@
 # Despliegue en Raspberry Pi
 
-Guía para correr Malinalco Render como servicio en una Raspberry Pi con Raspberry Pi OS (Debian-based) con arranque automático y kiosko en Chromium.
+Guía para correr Malinalco Render como **servicio de red** en una Raspberry Pi con Raspberry Pi OS. El servidor queda accesible desde cualquier navegador en la red local; no hay pantalla ni kiosko en la propia Pi.
 
 ## Hardware recomendado
 
 | Componente | Mínimo | Recomendado |
 |---|---|---|
 | Modelo | Raspberry Pi 4 — 2 GB RAM | Raspberry Pi 4/5 — 4 GB RAM |
-| Almacenamiento | microSD 16 GB clase 10 | SSD USB 64 GB |
-| Pantalla | HDMI 1080p | HDMI / TV LCD 1080p+ |
-| Red | WiFi o Ethernet | Ethernet (estable para MQTT) |
-
-> El render Babylon.js es **GPU-bound**. En Pi 3 funciona pero a baja fluidez; en Pi 4/5 va correcto.
+| Almacenamiento | microSD 16 GB clase 10 | SSD USB 32 GB |
+| Red | WiFi | Ethernet (más estable para MQTT continuo) |
+| Pantalla | No requerida | — |
 
 ## 1 — Sistema base
 
-Instala **Raspberry Pi OS (64-bit) con escritorio**. Después de boot inicial:
+Instala **Raspberry Pi OS Lite (64-bit)** — la versión sin escritorio es suficiente y más liviana. Después del boot inicial:
 
 ```bash
-sudo apt update
-sudo apt upgrade -y
-sudo apt install -y curl git chromium-browser unclutter
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y curl git
 ```
 
 ## 2 — Instalar Node.js 20
 
-Usar NodeSource (la versión de apt suele ser vieja):
+La versión de apt suele ser antigua. Usar NodeSource:
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 
-node --version   # debe ser v20.x.x o superior
+node --version   # debe mostrar v20.x.x o superior
 npm --version
 ```
 
-## 3 — Clonar / copiar el proyecto
+## 3 — Clonar el repositorio
 
 ```bash
-sudo mkdir -p /opt/malinalco
-sudo chown $USER:$USER /opt/malinalco
-cd /opt/malinalco
-
-# Si lo copias por scp / USB:
-#   scp -r usuario@pc:ruta/malinalco-render /opt/malinalco/
-# Si lo clonas:
-#   git clone <repo-url> malinalco-render
-
+cd /home/spaces
+git clone https://github.com/DLR-MEX/Malinalco-render.git malinalco-render
 cd malinalco-render
-bash scripts/setup.sh
+npm install
 ```
 
 ## 4 — Configurar `.env`
@@ -58,7 +48,7 @@ cp .env.example .env
 nano .env
 ```
 
-Editar:
+Valores mínimos necesarios:
 
 ```env
 UBIDOTS_TOKEN=BBUS-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -71,6 +61,8 @@ LOG_LEVEL=info
 MOCK_DATA=false
 ```
 
+> `WEB_HOST=0.0.0.0` es obligatorio para que el servidor acepte conexiones desde la red, no solo desde localhost.
+
 ## 5 — Servicio systemd
 
 Crea el archivo de unidad:
@@ -79,35 +71,34 @@ Crea el archivo de unidad:
 sudo nano /etc/systemd/system/malinalco-render.service
 ```
 
-Pega lo siguiente (ajusta `User=` si no usas `pi`):
+Pega lo siguiente:
 
 ```ini
 [Unit]
 Description=Malinalco Render - Dashboard 3D Acopinalco
-Documentation=https://github.com/your-org/malinalco-render
+Documentation=https://github.com/DLR-MEX/Malinalco-render
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/opt/malinalco/malinalco-render
+User=spaces
+WorkingDirectory=/home/spaces/malinalco-render
 ExecStart=/usr/bin/node src/index.js
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:/opt/malinalco/malinalco-render/logs/service.log
-StandardError=append:/opt/malinalco/malinalco-render/logs/service.log
+StandardOutput=append:/home/spaces/malinalco-render/logs/service.log
+StandardError=append:/home/spaces/malinalco-render/logs/service.log
 Environment=NODE_ENV=production
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Activa y arranca el servicio:
+Activa el servicio:
 
 ```bash
-sudo mkdir -p /opt/malinalco/malinalco-render/logs
-sudo chown -R pi:pi /opt/malinalco/malinalco-render/logs
+mkdir -p /home/spaces/malinalco-render/logs
 
 sudo systemctl daemon-reload
 sudo systemctl enable malinalco-render
@@ -117,78 +108,36 @@ sudo systemctl status malinalco-render
 
 ## 6 — Verificar
 
+Desde la propia Pi:
+
 ```bash
 curl http://localhost:5000/api/health
 # {"ok":true,"uptime":4.2,"mqtt_connected":true,"sse_clients":0}
 ```
 
-Logs en vivo:
+Desde otro equipo en la misma red, abrir en el navegador:
+
+```
+http://<IP-de-la-Pi>:5000
+```
+
+Para saber la IP de la Pi:
 
 ```bash
+hostname -I
+```
+
+## 7 — Ver logs
+
+```bash
+# Logs del sistema (systemd journal)
 journalctl -u malinalco-render -f
-# o
-tail -f /opt/malinalco/malinalco-render/logs/service.log
-```
 
-## 7 — Chromium en kiosko al iniciar sesión
+# Log de archivo (rotación diaria por Winston)
+tail -f /home/spaces/malinalco-render/logs/service.log
 
-Crea el script de arranque:
-
-```bash
-mkdir -p ~/.config/autostart
-nano ~/.config/autostart/malinalco-kiosk.desktop
-```
-
-Pega lo siguiente:
-
-```ini
-[Desktop Entry]
-Type=Application
-Name=Malinalco Kiosk
-Exec=/bin/bash -c "sleep 15 && /usr/bin/chromium-browser --kiosk --noerrdialogs --disable-infobars --no-first-run --disable-translate --disable-features=TranslateUI --check-for-update-interval=31536000 http://localhost:5000"
-X-GNOME-Autostart-enabled=true
-```
-
-> El `sleep 15` da tiempo al servicio de levantar antes de abrir el navegador.
-
-### Ocultar el cursor
-
-`unclutter` ya quedó instalado. Agrégalo también al autostart:
-
-```bash
-nano ~/.config/autostart/unclutter.desktop
-```
-
-```ini
-[Desktop Entry]
-Type=Application
-Name=Unclutter
-Exec=unclutter -idle 0.5 -root
-```
-
-### Auto-login (escritorio sin contraseña)
-
-```bash
-sudo raspi-config
-# 1 → System Options
-# 5 → Boot / Auto Login
-# 4 → Desktop Autologin
-```
-
-### Deshabilitar protector de pantalla
-
-```bash
-sudo apt install -y xscreensaver
-```
-
-Abre **Screensaver** en el menú gráfico y elige **Disable Screen Saver**.
-
-O por línea de comandos, agrega al inicio de `~/.config/lxsession/LXDE-pi/autostart`:
-
-```
-@xset s off
-@xset -dpms
-@xset s noblank
+# Últimas 100 líneas
+journalctl -u malinalco-render -n 100
 ```
 
 ## Mantenimiento
@@ -196,8 +145,8 @@ O por línea de comandos, agrega al inicio de `~/.config/lxsession/LXDE-pi/autos
 ### Actualizar el código
 
 ```bash
-cd /opt/malinalco/malinalco-render
-git pull            # si usas git
+cd /home/spaces/malinalco-render
+git pull
 npm install
 sudo systemctl restart malinalco-render
 ```
@@ -220,8 +169,7 @@ sudo systemctl disable malinalco-render
 sudo rm /etc/systemd/system/malinalco-render.service
 sudo systemctl daemon-reload
 
-rm ~/.config/autostart/malinalco-kiosk.desktop
-rm ~/.config/autostart/unclutter.desktop
+rm -rf /home/spaces/malinalco-render
 ```
 
 ## Resolución de problemas
@@ -234,24 +182,20 @@ journalctl -u malinalco-render -n 50
 ```
 
 Causas frecuentes:
-- `.env` no existe o falta `UBIDOTS_TOKEN`
+- `.env` no existe o falta `UBIDOTS_TOKEN`: `ls -la /home/spaces/malinalco-render/.env`
 - Puerto 5000 ocupado: `sudo lsof -i:5000`
-- Permisos del usuario: `chown -R pi:pi /opt/malinalco/malinalco-render`
+- Permisos incorrectos: `sudo chown -R spaces:spaces /home/spaces/malinalco-render`
+- Node.js no encontrado: verificar que `which node` devuelve `/usr/bin/node`
 
-### Chromium se cierra al rato
+### No se puede acceder desde la red
 
-Algunos firmwares antiguos tienen problemas con la GPU acelerada. Forzar render por software (más lento pero estable):
-
-```bash
-# Editar el desktop file y agregar al Exec=:
-chromium-browser --kiosk --disable-gpu ...
-```
-
-### El render se ve lento
-
-- Verifica que GL está activo: `chromium-browser` → abrir `chrome://gpu` → todo debe estar en verde
-- Considera reducir `subdivisions` del piso en `public/js/meshes/ground.js`
-- En Pi 3 o 4 con 2 GB, baja el zoom inicial (`r=56` → `r=42` en `public/js/scene.js` línea 65) — menos píxeles que renderizar
+1. Verificar que el servicio está corriendo: `curl http://localhost:5000/api/health`
+2. Verificar que `WEB_HOST=0.0.0.0` en `.env` (no `127.0.0.1`)
+3. Verificar el firewall de la Pi: `sudo ufw status` — si está activo, abrir el puerto:
+   ```bash
+   sudo ufw allow 5000/tcp
+   ```
+4. Verificar la IP de la Pi: `hostname -I`
 
 ### MQTT no conecta
 

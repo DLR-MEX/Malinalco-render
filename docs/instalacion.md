@@ -89,8 +89,10 @@ npm run dev
 # Todos los tests
 npm test
 
-# Un archivo específico
+# Archivos específicos
 npx vitest run tests/interpolation.test.js
+npx vitest run tests/mqttParser.test.js      # parseo MQTT: dot complete + legacy /lv
+npx vitest run tests/snapshotStore.test.js   # store en memoria
 
 # Modo watch (re-ejecuta al guardar)
 npx vitest

@@ -11,12 +11,13 @@ Recorrido completo de un dato ambiental desde el sensor físico hasta el render 
 └─────────────┘                      │ ubidots.com       │
                                      └────────┬──────────┘
                                               │  MQTT TLS :8883
-                                              │  tópico: /v1.6/devices/{device}/+/lv
+                                              │  tópico: /v1.6/devices/{device}/+
+                                              │  payload: JSON {value, timestamp, context}
                                               ▼
                                      ┌──────────────────┐
                                      │  mqttClient.js   │  parsea, valida, actualiza
                                      └────────┬──────────┘
-                                              │  store.update(device, variable, value)
+                                              │  store.update(device, variable, value, ts)
                                               ▼
                                      ┌──────────────────┐
                                      │ snapshotStore.js │  Map en memoria, emite 'change'
@@ -52,24 +53,30 @@ Al arrancar, `MqttClient.start()` abre una conexión **MQTT sobre TLS** al broke
 mqtts://industrial.api.ubidots.com:8883
 ```
 
-Se suscribe al tópico wildcard:
+Se suscribe al tópico *dot complete* (sin sufijo `/lv`):
 
 ```
-/v1.6/devices/{UBIDOTS_DEVICE}/+/lv
+/v1.6/devices/{UBIDOTS_DEVICE}/+
 ```
 
-El `+` captura **todas las variables** del device. El sufijo `/lv` indica *last value* — Ubidots publica el valor más reciente cuando hay una nueva lectura.
+El `+` captura **todas las variables** del device. Ubidots publica un payload **JSON** cada vez que llega una lectura nueva:
+
+```json
+{ "value": 25.4, "timestamp": 1715712345678, "context": {} }
+```
+
+El campo `timestamp` es la hora en que Ubidots registró el dato (epoch en ms). Este valor es el que aparece en el encabezado del dashboard como "último dato".
 
 Cada mensaje entrante pasa por `parseLvMessage()`:
-- Extrae el nombre de la variable del tópico
+- Extrae el nombre de la variable del tópico (4 segmentos → formato dot complete con JSON)
 - Verifica que la clave `{device}/{variable}` esté en `VALID_KEYS` (definido en `sensorsMap.js`)
-- Convierte el payload (cadena numérica plana, ej. `"25.4"`) a `Number`
+- Parsea el payload JSON y extrae `value` y `timestamp`
 
 Luego `isValidReading()` descarta valores fuera del rango físicamente posible (`TEMP_VALID_MIN/MAX`, `HUM_VALID_MIN/MAX`). Los valores rechazados se loguean y se **ignoran** — el store conserva el último valor bueno.
 
 ### 3. snapshotStore.js — estado en memoria
 
-`SnapshotStore` mantiene un `Map<"device/variable", { value, ts }>` con el último valor recibido por cada variable. Cada llamada a `update()` persiste el valor y emite el evento `'change'`.
+`SnapshotStore` mantiene un `Map<"device/variable", { value, ts }>` con el último valor recibido por cada variable. Cada llamada a `update(device, variable, value, ts)` persiste el valor junto con el `timestamp` real del sensor y emite el evento `'change'`.
 
 `getAll()` construye el snapshot agrupado por zona:
 
@@ -108,6 +115,18 @@ El navegador abre un `EventSource` hacia `/api/stream`. Al conectar recibe inmed
 - Texto de las etiquetas de sensor (`sensorLabels.js`)
 - Barras del panel lateral (`cards.js`)
 - Colorbar del overlay (`colorbar.js`)
+
+Adicionalmente, `app.js` gestiona el **indicador de antigüedad** del último dato:
+- `updateTimestamp(ts)` formatea y muestra el timestamp en el encabezado
+- `refreshAge()` (cada 15 s) calcula cuánto tiempo pasó desde `lastTs` y aplica la clase CSS correspondiente al encabezado:
+
+| Clase | Condición | Visual |
+|---|---|---|
+| `age-fresh` | `< warnMin` minutos (default 5) | Timestamp en verde |
+| `age-warn` | `≥ warnMin` y `< errorMin` | Timestamp en ámbar, borde ámbar |
+| `age-err` | `≥ errorMin` minutos (default 30) | Timestamp en rojo, animación pulsante |
+
+Los umbrales `warnMin`/`errorMin` provienen de `/api/config` (`thresholds.warnMin/errorMin`).
 
 ### 6. Modo mock (desarrollo)
 

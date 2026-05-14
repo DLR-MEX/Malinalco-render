@@ -19,13 +19,14 @@ Sensores IoT → Ubidots MQTT → Node.js → Babylon.js.
 ```
 Sensor → Ubidots Industrial → MQTT TLS (8883)
            ↓
-      mqttClient.js   ← suscribe /v1.6/devices/{device}/+/lv
-           ↓
-      snapshotStore.js ← almacena último valor + timestamp
+      mqttClient.js   ← suscribe /v1.6/devices/{device}/+
+           ↓                    payload JSON {value, timestamp, context}
+      snapshotStore.js ← almacena último valor + timestamp real del sensor
            ↓
       sseHub.js        ← empuja evento "snapshot" a clientes HTTP
            ↓
       app.js (frontend) → escena Babylon.js → heatmap 3D
+                          indicador de antigüedad del último dato (age-fresh/warn/err)
 ```
 
 ## Stack

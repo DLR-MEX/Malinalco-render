@@ -20,28 +20,40 @@ El sistema usa **MQTT 3.1.1 sobre TLS** (MQTTS) para recibir datos de Ubidots In
 ## Tópico suscrito
 
 ```
-/v1.6/devices/{UBIDOTS_DEVICE}/+/lv
+/v1.6/devices/{UBIDOTS_DEVICE}/+
 ```
 
-El wildcard `+` captura **todas las variables** del device. El sufijo `/lv` es el endpoint *last value* de Ubidots — el broker publica el valor más reciente cada vez que el sensor envía una lectura.
+El wildcard `+` captura **todas las variables** del device. Este es el tópico *dot complete* de Ubidots — el broker publica un payload JSON completo (con timestamp real) cada vez que el sensor envía una lectura.
 
 Ejemplo con device `prueba_lora`:
 ```
-/v1.6/devices/prueba_lora/sfth3_temperature/lv
-/v1.6/devices/prueba_lora/sfth3_humidity/lv
-/v1.6/devices/prueba_lora/sith4_temperature/lv
+/v1.6/devices/prueba_lora/sfth3_temperature
+/v1.6/devices/prueba_lora/sfth3_humidity
+/v1.6/devices/prueba_lora/sith4_temperature
 ...
 ```
 
+> **Nota histórica:** En versiones anteriores se usaba el tópico `/+/lv` (*last value*), cuyo payload era una cadena numérica plana (`"25.4"`). El parser sigue siendo compatible con ese formato como fallback, pero el timestamp en ese caso es `Date.now()` (hora de llegada al servidor, no hora real del sensor).
+
 ## Formato de payload
 
-Los payloads de Ubidots `/lv` son **cadenas numéricas planas**, no JSON:
+Los payloads del tópico *dot complete* son **JSON**:
 
-```
-25.4
+```json
+{
+  "value": 25.4,
+  "timestamp": 1715712345678,
+  "context": {}
+}
 ```
 
-No hay envolvente `{"value": ...}`. El parser en `parseLvMessage()` hace `Number(str)` directamente.
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `value` | `number` | Lectura del sensor |
+| `timestamp` | `number` | Epoch en milisegundos — hora en que Ubidots registró el dato |
+| `context` | `object` | Metadatos adicionales de Ubidots (generalmente vacío) |
+
+El `timestamp` es el que se propaga como `lastUpdate` en el snapshot y como `ts` en los eventos SSE. El frontend lo usa para calcular la antigüedad del último dato y aplicar las clases visuales `age-fresh`, `age-warn`, `age-err` en el encabezado.
 
 ## Variables registradas
 
@@ -75,13 +87,14 @@ Valores fuera de rango se loguean como `warn` y se ignoran — el store conserva
 
 ```
 Broker publica:
-  topic:   /v1.6/devices/prueba_lora/sfth3_temperature/lv
-  payload: "21.6"
+  topic:   /v1.6/devices/prueba_lora/sfth3_temperature
+  payload: {"value":21.6,"timestamp":1715712345678,"context":{}}
 
 parseLvMessage(topic, payload)
-  → device   = "prueba_lora"
-  → variable = "sfth3_temperature"
-  → value    = 21.6
+  → device    = "prueba_lora"
+  → variable  = "sfth3_temperature"
+  → value     = 21.6
+  → timestamp = 1715712345678  ← hora real del sensor (ms epoch)
 
 VALID_KEYS.has("prueba_lora/sfth3_temperature") → true
 
@@ -92,15 +105,20 @@ resolveVariable("sfth3_temperature")
 
 logger.info("Received engorda.temp=21.6 (sfth3_temperature)")
 
-store.update("prueba_lora", "sfth3_temperature", 21.6)
+store.update("prueba_lora", "sfth3_temperature", 21.6, 1715712345678)
   → emite 'change'
   → sseHub.broadcast('snapshot', store.getAll())
-  → sseHub.broadcast('data', { ..., sensorId: "eng_n", zone: "engorda", mode: "temp" })
+     └─ snapshot.lastUpdate = 1715712345678
+  → sseHub.broadcast('data', { ..., ts: 1715712345678 })
+
+Frontend:
+  updateTimestamp(1715712345678)
+  refreshAge()  → calcula antigüedad, aplica clase age-fresh/warn/err
 ```
 
 ## Modo mock (sin MQTT)
 
-Cuando `MOCK_DATA=true`, `mockDriver.js` omite la conexión MQTT y llama directamente a `store.update()` con valores aleatorios cada 2 s. El indicador de conexión en el frontend reporta **Conectado** (el mock siempre retorna `true` en `mqttStatusFn`).
+Cuando `MOCK_DATA=true`, `mockDriver.js` omite la conexión MQTT y llama directamente a `store.update()` con valores aleatorios cada 2 s. El indicador de conexión en el frontend reporta **Conectado** (el mock siempre retorna `true` en `mqttStatusFn`). El timestamp en modo mock es `Date.now()`.
 
 ```env
 MOCK_DATA=true
@@ -133,6 +151,15 @@ MOCK_DATA=true
 1. Verificar que `UBIDOTS_DEVICE` coincide exactamente con el label del device en Ubidots
 2. Verificar en Ubidots que las variables del device reciben datos recientemente
 3. Revisar que los nombres de variables en `sensorsMap.js` coinciden con los labels en Ubidots
+4. Confirmar en el log de arranque que el servidor suscribió al tópico correcto:
+   ```
+   [INFO] mqttClient: Subscribed to: /v1.6/devices/{device}/+
+   ```
+   Si aparece `/+/lv` en lugar de `/+`, el servidor está corriendo código antiguo — reiniciar.
+
+### El timestamp en el header muestra una hora antigua
+
+El header muestra el `timestamp` del **último payload recibido de Ubidots**, no la hora del servidor. Si los sensores llevan horas sin enviar datos, la hora mostrada será la del último dato real. El encabezado cambia de color: verde (< 5 min), ámbar (> 5 min), rojo pulsante (> 30 min).
 
 ### Lecturas rechazadas
 

@@ -8,10 +8,10 @@ malinalco-render/
 │   ├── index.js            # Entry point — cablea todos los módulos
 │   ├── config.js           # Variables de entorno y constantes del sistema
 │   ├── sensorsMap.js       # Definición de zonas, sensores y mapeo a variables Ubidots
-│   ├── mqttClient.js       # Cliente MQTT subscribe-only (TLS)
+│   ├── mqttClient.js       # Cliente MQTT subscribe-only (TLS), parsea JSON con timestamp
 │   ├── snapshotStore.js    # Estado en memoria, emite eventos 'change'
 │   ├── sseHub.js           # Hub de clientes SSE
-│   ├── server.js           # Express + 4 endpoints
+│   ├── server.js           # Express + endpoints
 │   ├── logger.js           # Winston con rotación diaria
 │   └── mockDriver.js       # Inyector de datos simulados para desarrollo
 │
@@ -19,22 +19,27 @@ malinalco-render/
 │   ├── index.html
 │   ├── css/styles.css
 │   └── js/
-│       ├── app.js          # Bootstrap, SSE, ciclo de actualización
+│       ├── app.js          # Bootstrap, SSE, indicador de antigüedad del dato
 │       ├── scene.js        # Motor Babylon.js, cámara, SSAO
 │       ├── colorScales.js  # Paletas de color para temp/hum
 │       ├── colorbar.js     # Overlay colorbar horizontal
 │       ├── cards.js        # Panel lateral con barras por zona
 │       ├── immersion.js    # Modo pantalla completa / kiosk
 │       └── meshes/
-│           ├── labels.js       # Etiquetas decorativas del sitio (Engorda, Desarrollo…)
-│           ├── sensorLabels.js # Paneles de lectura por sensor
-│           ├── heatVolume.js   # Heatmap volumétrico (isosuperficies)
-│           ├── habitas.js      # Geometría de los túneles tipo iglú
+│           ├── labels.js       # Etiquetas decorativas: Engorda, Desarrollo, Habitas, Cajón
+│           ├── sensorLabels.js # Paneles de lectura por sensor (billboard + wall-mounted)
+│           ├── heatVolume.js   # Heatmap volumétrico (isosuperficies Marching Cubes)
+│           ├── habitas.js      # Geometría iglú — exporta HAB_SIDE, HAB_WALL_H, HAB1_CZ, HAB2_CZ
 │           ├── tunnels.js      # Túneles de Engorda
-│           ├── ground.js       # Suelo
+│           ├── ground.js       # Suelo centrado en X=-4.5 (centro del complejo)
 │           └── materials.js    # Materiales compartidos
 │
 ├── docs/                   # Esta documentación
+├── scripts/                # Scripts de instalación Windows (NSSM + Chrome kiosk)
+│   ├── install_service.bat
+│   ├── update_service.bat
+│   ├── uninstall_service.bat
+│   └── README.md
 ├── .env.example            # Plantilla de variables de entorno
 └── package.json
 ```
@@ -74,8 +79,12 @@ Subscribe-only. Nunca publica. Flujo interno:
 ```
 connect() → subscribe(MQTT_TOPIC) → on('message') → parseLvMessage()
                                                    → isValidReading()
-                                                   → store.update()
+                                                   → store.update(device, variable, value, ts)
 ```
+
+`parseLvMessage()` maneja dos formatos:
+- **Dot complete** (tópico de 4 segmentos, payload JSON): extrae `value` y `timestamp` real del sensor.
+- **Last value** legacy (tópico de 5 segmentos con `/lv`, payload string numérico): extrae solo `value`; `timestamp` es `null` y se sustituye por `Date.now()`.
 
 Reconexión automática cada 1 s. El token Ubidots se usa como `username` (password vacío).
 
@@ -109,8 +118,9 @@ Winston con transporte `DailyRotateFile`. Genera logs en `logs/YYYY-MM/YYYY-MM-D
 ### `app.js`
 - Abre `EventSource` hacia `/api/stream`
 - Al recibir `snapshot`: actualiza todos los componentes visuales
-- Al recibir `data`: actualiza solo el sensor cambiado (más eficiente)
+- Al recibir `data`: actualiza el timestamp del encabezado
 - Maneja los modos de visualización (temperatura / humedad)
+- Gestiona el **indicador de antigüedad**: `updateTimestamp()` + `refreshAge()` cada 15 s aplican clases CSS `age-fresh/warn/err` al encabezado según el tiempo transcurrido desde el último dato de Ubidots
 
 ### `scene.js`
 - Inicializa el engine Babylon.js y la cámara ArcRotate (ortográfica)
@@ -119,7 +129,15 @@ Winston con transporte `DailyRotateFile`. Genera logs en `logs/YYYY-MM/YYYY-MM-D
 - Los meshes **nunca se destruyen ni recrean** entre frames — se ocultan/muestran con `setVisibility`
 
 ### `meshes/sensorLabels.js`
-Crea un plano con `DynamicTexture` por cada sensor. El plano tiene `BILLBOARDMODE_ALL` para sensores flotantes, o `BILLBOARDMODE_NONE` + rotación calculada (`atan2(-n.x, n.z)`) para sensores pegados a pared (`wallNormal`).
+Crea un plano con `DynamicTexture` por cada sensor. El plano tiene `BILLBOARDMODE_ALL` para sensores flotantes, o `BILLBOARDMODE_NONE` + rotación calculada para sensores pegados a pared (`wallNormal`):
+
+```js
+plane.rotation.y = Math.atan2(-n.x, -n.z);
+```
+
+Negar ambos componentes es necesario para alinear correctamente el frente del plano con la normal en cualquier orientación (norte, sur, este, oeste) dentro del sistema LHS de Babylon.js. Usar solo `atan2(-n.x, n.z)` produce texto en espejo en paredes con `n.z ≠ 0` (norte/sur).
+
+Las etiquetas de sensor con `displayLabels` muestran temperatura y humedad simultáneamente (una etiqueta fija por modo). Las etiquetas simples cambian de magnitud según la tab activa (Temp/Hum).
 
 ### `meshes/heatVolume.js`
 Implementa Marching Cubes inline (tablas Paul Bourke). Mantiene un **pool de 5 meshes reutilizables** para las 5 isosuperficies. Solo llama `vertexData.applyToMesh()` por frame — sin `new Mesh()` en el hot path.
@@ -135,6 +153,9 @@ Implementa Marching Cubes inline (tablas Paul Bourke). Mantiene un **pool de 5 m
 | `no-store` en estáticos | Garantiza que cambios de JS/CSS se reflejen sin Ctrl+F5 |
 | `BUILD_VERSION` en URLs de assets | Bust de cache de proxy/CDN sin romper el header no-store |
 | Coordenadas `p(x,y,z)` → Babylon `Vector3(x,z,y)` | Babylon usa Y-up; Plotly (sistema original) usaba Z-up |
+| Tópico MQTT `/+` (dot complete) en lugar de `/+/lv` | El payload JSON incluye `timestamp` real del sensor — esencial para el indicador de antigüedad del dato |
+| `atan2(-n.x, -n.z)` en etiquetas de pared | Negar ambos componentes evita texto en espejo para paredes norte/sur en el LHS de Babylon |
+| Suelo y cámara centrados en X=-4.5 | El complejo ocupa X=-18..+9; X=-4.5 es el centro real del conjunto de túneles |
 
 ## Reglas invariantes
 
