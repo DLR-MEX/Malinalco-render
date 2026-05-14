@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Malinalco — Invernadero Acopinalco</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700&family=Orbitron:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/styles.css">
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+</head>
+<body>
+    <div class="header">
+        <div class="header-left">
+            <div class="brand-logo" aria-label="Xentro">
+                <div class="brand-main">
+                    <svg class="brand-icon" viewBox="0 0 64 64" aria-hidden="true">
+                        <!-- Fork: rotado -28°, tines arriba-izquierda, mango abajo-derecha -->
+                        <g transform="rotate(-28 32 32)" fill="currentColor" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round">
+                            <line x1="32" y1="32" x2="32" y2="58" stroke-width="3.2" fill="none"/>
+                            <path d="M 22.5 22 L 41.5 22 L 39.5 31 L 24.5 31 Z"/>
+                            <line x1="25" y1="6" x2="25" y2="22" stroke-width="3" fill="none"/>
+                            <line x1="32" y1="5" x2="32" y2="22" stroke-width="3" fill="none"/>
+                            <line x1="39" y1="6" x2="39" y2="22" stroke-width="3" fill="none"/>
+                        </g>
+                        <!-- Knife: rotado +28°, hoja arriba-derecha, mango abajo-izquierda -->
+                        <g transform="rotate(28 32 32)" fill="currentColor" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round">
+                            <line x1="32" y1="32" x2="32" y2="58" stroke-width="3.2" fill="none"/>
+                            <path d="M 32 5 L 37.5 31 L 26.5 31 Z"/>
+                        </g>
+                        <!-- Rama de olivo (acento orgánico, sutil) -->
+                        <g stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="currentColor" opacity="0.78">
+                            <path d="M 22 16 Q 28 7 32 6 Q 38 8 42 15" fill="none"/>
+                            <ellipse cx="27" cy="11" rx="2.8" ry="1.3" transform="rotate(-32 27 11)"/>
+                            <ellipse cx="38" cy="11" rx="2.8" ry="1.3" transform="rotate(32 38 11)"/>
+                        </g>
+                    </svg>
+                    <span class="brand-name">entro</span>
+                </div>
+                <span class="brand-tag">Centro de transformación de residuos orgánicos</span>
+            </div>
+        </div>
+        <div class="header-center">
+            <span id="mqtt-timestamp">--</span>
+            <span id="mqtt-age" class="mqtt-age">--</span>
+            <div class="conn-line">
+                <span id="conn-dot" class="connection-dot err"></span>
+                <span id="conn-status">Conectando...</span>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="condor-logo">
+                <span class="condor-ing">Ingenieria</span>
+                <span class="condor-name">CONDOR</span>
+            </div>
+            <div class="condor-swoosh">
+                <span class="sw1"></span>
+                <span class="sw2"></span>
+                <span class="sw3"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard">
+        <div class="main-row">
+            <div class="render-column">
+                <div id="scene-container">
+                    <div class="mode-toggle">
+                        <button id="btn-temp" class="active" data-mode="temp">🌡 Temperatura</button>
+                        <button id="btn-hum" data-mode="hum">💧 Humedad</button>
+                    </div>
+                    <div id="scene3d"><canvas id="scene3d-canvas"></canvas></div>
+
+                    <!-- Colorbar horizontal: la paleta del modo activo con sus margenes -->
+                    <div class="colorbar-h" id="colorbar-h">
+                        <div class="colorbar-h-title" id="colorbar-h-title">--</div>
+                        <div class="colorbar-h-bar" id="colorbar-h-bar"></div>
+                        <div class="colorbar-h-scale" id="colorbar-h-scale">
+                            <span>--</span><span>--</span><span>--</span><span>--</span><span>--</span>
+                        </div>
+                    </div>
+
+                    <button class="btn-expand-render" id="btn-expand">⛶ INMERSIÓN</button>
+                </div>
+            </div>
+
+            <div class="side-panel">
+                <div class="indicators-section">
+                    <h2>Temperatura por zona</h2>
+                    <div class="hbars-row" id="zone-bars-temp"></div>
+                </div>
+                <div class="indicators-section">
+                    <h2>Humedad por zona</h2>
+                    <div class="hbars-row" id="zone-bars-hum"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">ACOPINALCO — Monitor ambiental tiempo real</div>
+    <div class="panel-edge-hint" title="Tablero →"></div>
+
+    <script type="module" src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,145 @@
+# Arquitectura
+
+## Estructura de directorios
+
+```
+malinalco-render/
+├── src/                    # Backend Node.js
+│   ├── index.js            # Entry point — cablea todos los módulos
+│   ├── config.js           # Variables de entorno y constantes del sistema
+│   ├── sensorsMap.js       # Definición de zonas, sensores y mapeo a variables Ubidots
+│   ├── mqttClient.js       # Cliente MQTT subscribe-only (TLS)
+│   ├── snapshotStore.js    # Estado en memoria, emite eventos 'change'
+│   ├── sseHub.js           # Hub de clientes SSE
+│   ├── server.js           # Express + 4 endpoints
+│   ├── logger.js           # Winston con rotación diaria
+│   └── mockDriver.js       # Inyector de datos simulados para desarrollo
+│
+├── public/                 # Frontend estático servido por Express
+│   ├── index.html
+│   ├── css/styles.css
+│   └── js/
+│       ├── app.js          # Bootstrap, SSE, ciclo de actualización
+│       ├── scene.js        # Motor Babylon.js, cámara, SSAO
+│       ├── colorScales.js  # Paletas de color para temp/hum
+│       ├── colorbar.js     # Overlay colorbar horizontal
+│       ├── cards.js        # Panel lateral con barras por zona
+│       ├── immersion.js    # Modo pantalla completa / kiosk
+│       └── meshes/
+│           ├── labels.js       # Etiquetas decorativas del sitio (Engorda, Desarrollo…)
+│           ├── sensorLabels.js # Paneles de lectura por sensor
+│           ├── heatVolume.js   # Heatmap volumétrico (isosuperficies)
+│           ├── habitas.js      # Geometría de los túneles tipo iglú
+│           ├── tunnels.js      # Túneles de Engorda
+│           ├── ground.js       # Suelo
+│           └── materials.js    # Materiales compartidos
+│
+├── docs/                   # Esta documentación
+├── .env.example            # Plantilla de variables de entorno
+└── package.json
+```
+
+## Módulos backend
+
+### `config.js`
+Fuente única de verdad para todas las constantes ajustables. Lee `.env` con `dotenv/config`. Ningún otro módulo hardcodea valores; todos importan de aquí.
+
+Exports clave:
+- Credenciales: `UBIDOTS_TOKEN`, `UBIDOTS_DEVICE`, `MQTT_BROKER`, `MQTT_PORT`
+- Rangos colorscale: `TEMP_MIN/MAX`, `HUM_MIN/MAX`
+- Validación física: `TEMP_VALID_MIN/MAX`, `HUM_VALID_MIN/MAX`
+- Alertas: `TEMP_ALERT_LOW/HIGH`, `HUM_ALERT_LOW/HIGH`, `ALERT_WARN_MIN`, `ALERT_ERROR_MIN`
+
+### `sensorsMap.js`
+Define la topología física del invernadero. **Editar aquí si se agregan sensores o cambia la posición 3D.**
+
+```
+ZONES   → unidades lógicas: engorda, desarrollo, hab1, hab2
+SENSORS → puntos físicos, cada uno con:
+           - id, zone, tunnel
+           - tempVariable / humVariable  (nombre en Ubidots)
+           - coords3D { x, y, z }        (mundo Babylon.js)
+           - displayLabels               (etiquetas 3D, una por modo)
+           - wallNormal (opcional)       (para sensores pegados a pared)
+```
+
+Exports derivados:
+- `VALID_KEYS` — Set de claves `"device/variable"` válidas para filtrado rápido en MQTT
+- `ZONE_CAPACITY` — capacidad de sensores por zona (evita O(n²) en getAll)
+- `resolveVariable(variable)` — devuelve `{ sensor, mode }` dado un nombre de variable Ubidots
+
+### `mqttClient.js`
+Subscribe-only. Nunca publica. Flujo interno:
+
+```
+connect() → subscribe(MQTT_TOPIC) → on('message') → parseLvMessage()
+                                                   → isValidReading()
+                                                   → store.update()
+```
+
+Reconexión automática cada 1 s. El token Ubidots se usa como `username` (password vacío).
+
+### `snapshotStore.js`
+`EventEmitter` que extiende `Map`. Responsabilidades:
+- Persistir el último valor recibido por variable
+- Emitir `'change'` para que `sseHub` pueda hacer push inmediato
+- Producir el snapshot agrupado por zona (`getAll()`) — estructura invariante que consume el frontend
+
+### `sseHub.js`
+Patrón publisher/subscriber sobre HTTP. Los clientes se registran con `register(res)`; el entry point les hace `broadcast()` en respuesta al evento `'change'` del store. Heartbeat cada 25 s.
+
+### `server.js`
+Express mínimo. Cuatro endpoints:
+
+| Endpoint | Método | Descripción |
+|---|---|---|
+| `/` | GET | HTML con cache-busting por `BUILD_VERSION` |
+| `/api/health` | GET | Liveness probe: uptime, mqtt_connected, sse_clients |
+| `/api/config` | GET | Metadatos estáticos: zonas, sensores, rangos, umbrales |
+| `/api/data` | GET | Snapshot completo (hidratación inicial o polling fallback) |
+| `/api/stream` | GET | SSE — push de eventos `snapshot` y `data` |
+
+Los estáticos (`public/`) se sirven con `no-store` para evitar que el navegador cache JS/CSS entre reinicios.
+
+### `logger.js`
+Winston con transporte `DailyRotateFile`. Genera logs en `logs/YYYY-MM/YYYY-MM-DD.log`. La carpeta del mes se crea automáticamente.
+
+## Módulos frontend
+
+### `app.js`
+- Abre `EventSource` hacia `/api/stream`
+- Al recibir `snapshot`: actualiza todos los componentes visuales
+- Al recibir `data`: actualiza solo el sensor cambiado (más eficiente)
+- Maneja los modos de visualización (temperatura / humedad)
+
+### `scene.js`
+- Inicializa el engine Babylon.js y la cámara ArcRotate (ortográfica)
+- Configura SSAO2 para profundidad visual
+- Construye los grupos de meshes una sola vez al inicio
+- Los meshes **nunca se destruyen ni recrean** entre frames — se ocultan/muestran con `setVisibility`
+
+### `meshes/sensorLabels.js`
+Crea un plano con `DynamicTexture` por cada sensor. El plano tiene `BILLBOARDMODE_ALL` para sensores flotantes, o `BILLBOARDMODE_NONE` + rotación calculada (`atan2(-n.x, n.z)`) para sensores pegados a pared (`wallNormal`).
+
+### `meshes/heatVolume.js`
+Implementa Marching Cubes inline (tablas Paul Bourke). Mantiene un **pool de 5 meshes reutilizables** para las 5 isosuperficies. Solo llama `vertexData.applyToMesh()` por frame — sin `new Mesh()` en el hot path.
+
+## Decisiones de diseño clave
+
+| Decisión | Razón |
+|---|---|
+| SSE en lugar de WebSocket | Unidireccional (server→client), reconexión automática del browser, sin dependencias adicionales |
+| Pipeline unidireccional estricto | Seguridad + trazabilidad: el frontend nunca escribe datos |
+| `VALID_KEYS` Set para filtrar MQTT | O(1) vs O(n) por mensaje en entornos de alta frecuencia |
+| Meshes fijos, visibilidad toggled | Previene memory leaks y GC pauses en el hot path de render |
+| `no-store` en estáticos | Garantiza que cambios de JS/CSS se reflejen sin Ctrl+F5 |
+| `BUILD_VERSION` en URLs de assets | Bust de cache de proxy/CDN sin romper el header no-store |
+| Coordenadas `p(x,y,z)` → Babylon `Vector3(x,z,y)` | Babylon usa Y-up; Plotly (sistema original) usaba Z-up |
+
+## Reglas invariantes
+
+1. El pipeline de datos es **estrictamente unidireccional** — no hay escritura desde el frontend.
+2. La estructura de `/api/data` es un contrato fijo — mismas claves, mismo anidamiento.
+3. Las posiciones de sensores y dimensiones del cuarto solo se editan en `sensorsMap.js`.
+4. El sensor exterior `tex` no participa en la interpolación volumétrica.
+5. El conteo de meshes entre frames del mismo modo debe ser constante — nunca `dispose()` en el polling loop.
