@@ -1,0 +1,23 @@
+[Unit]
+Description=Malinalco Render - Dashboard 3D + Agente IA (Acopinalco)
+Documentation=https://github.com/DLR-MEX/Malinalco-render
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=malinalco
+WorkingDirectory=/opt/malinalco-render
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+# puppeteer (reportes PDF, Fase 4) usa el Chromium del sistema; NO descarga el
+# suyo. La ruta se fija aqui para forzarla en prod (gana sobre el .env vacio).
+Environment=PUPPETEER_SKIP_DOWNLOAD=true
+Environment=PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+StandardOutput=append:/opt/malinalco-render/logs/service.log
+StandardError=append:/opt/malinalco-render/logs/service.log
+
+[Install]
+WantedBy=multi-user.target

@@ -7,7 +7,7 @@
 import mqtt from 'mqtt';
 
 import {
-  MQTT_BROKER, MQTT_PORT, MQTT_TOPIC, UBIDOTS_TOKEN,
+  MQTT_BROKER, MQTT_PORT, MQTT_TLS, MQTT_TOPIC, UBIDOTS_TOKEN,
   TEMP_VALID_MIN, TEMP_VALID_MAX, HUM_VALID_MIN, HUM_VALID_MAX,
 } from './config.js';
 import { VALID_KEYS, resolveVariable } from './sensorsMap.js';
@@ -109,8 +109,9 @@ export class MqttClient {
       return;
     }
 
-    const url = `mqtts://${MQTT_BROKER}:${MQTT_PORT}`;
-    logger.info(`Connecting to ${MQTT_BROKER}:${MQTT_PORT} ...`);
+    const protocol = MQTT_TLS ? 'mqtts' : 'mqtt';
+    const url = `${protocol}://${MQTT_BROKER}:${MQTT_PORT}`;
+    logger.info(`Connecting to ${url} (TLS=${MQTT_TLS}) ...`);
 
     this._client = mqtt.connect(url, {
       username: UBIDOTS_TOKEN,

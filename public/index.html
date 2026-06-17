@@ -10,6 +10,8 @@
     <link rel="stylesheet" href="/css/styles.css">
     <script src="https://cdn.babylonjs.com/babylon.js"></script>
     <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+    <!-- ECharts: graficas inline del agente IA -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 </head>
 <body>
     <div class="header">
@@ -101,6 +103,28 @@
 
     <div class="footer">ACOPINALCO — Monitor ambiental tiempo real</div>
     <div class="panel-edge-hint" title="Tablero →"></div>
+
+    <!-- ===== Agente IA: boton flotante + panel de chat ===== -->
+    <button id="ai-chat-fab" class="ai-chat-fab" title="Asistente IA (C)" aria-label="Abrir asistente IA">
+        <span class="ai-chat-fab-icon">🤖</span>
+    </button>
+    <div id="ai-chat-panel" class="ai-chat-panel hidden" role="dialog" aria-label="Asistente IA">
+        <div class="ai-chat-head">
+            <div class="ai-chat-head-title">
+                <span class="ai-chat-head-icon">🤖</span>
+                <span>Asistente</span>
+                <span id="ai-chat-status" class="ai-chat-status">listo</span>
+            </div>
+            <button id="ai-chat-clear" class="ai-chat-clear" title="Borrar conversación">🗑</button>
+            <button id="ai-chat-close" class="ai-chat-close" title="Cerrar (Esc)">✕</button>
+        </div>
+        <div id="ai-chat-messages" class="ai-chat-messages"></div>
+        <form id="ai-chat-form" class="ai-chat-form">
+            <textarea id="ai-chat-input" class="ai-chat-input" rows="1"
+                placeholder="Pregunta sobre las zonas, sensores, histórico…" autocomplete="off"></textarea>
+            <button id="ai-chat-send" type="submit" class="ai-chat-send" title="Enviar">➤</button>
+        </form>
+    </div>
 
     <script type="module" src="/js/app.js"></script>
 </body>

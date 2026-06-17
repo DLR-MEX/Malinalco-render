@@ -7,3 +7,16 @@ Thumbs.db
 .vscode/
 .idea/
 .opencode/
+
+# Reportes PDF generados en runtime (solo la carpeta de salida en la raiz,
+# NO el codigo src/reports/). El '/' inicial ancla el patron a la raiz.
+/reports/
+
+# Docker: SOLO para pruebas locales. El repo/prod no usa Docker (deploy nativo
+# con systemd en VPS Debian / NSSM en Windows). No debe ir a main.
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Transcript de sesion local (artefacto, no codigo).
+*-local-command-*.txt

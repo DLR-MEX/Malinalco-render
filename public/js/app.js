@@ -16,6 +16,7 @@ import {
 } from './cards.js';
 import { setMode as colorbarSetMode } from './colorbar.js';
 import { initImmersion } from './immersion.js';
+import { initChat } from './predictor/chat.js';
 
 let snapshot = null;
 let mode = 'temp';
@@ -30,6 +31,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initScene(document.getElementById('scene3d-canvas'));
   initImmersion();
   setupModeButtons();
+  initChat();
 
   // /api/config primero: zonas (sidebar) + sensores fisicos (etiquetas 3D).
   try {
