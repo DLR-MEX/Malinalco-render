@@ -1,0 +1,16 @@
+# Normaliza todos los archivos de texto a LF en el repositorio.
+# Git detecta automáticamente qué archivos son texto.
+* text=auto eol=lf
+
+# Scripts de Windows: mantener CRLF para que .bat funcionen correctamente
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binarios: nunca tocar
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
