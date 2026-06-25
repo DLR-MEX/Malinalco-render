@@ -89,6 +89,10 @@ async function main() {
     enabled: AGENT_ENABLED,
     tools,
   });
+  // Inyeccion diferida: ReportsService se crea antes que el agente (que depende de
+  // tools, que depende de reports). El reporte usa el agente para la narrativa IA;
+  // si queda null cae a fallbacks estaticos.
+  if (reports) reports.agent = agent;
 
   const app = createApp({ store, sseHub, mqttStatusFn, agent, telegram, reports, scheduler });
   const server = await start(app, WEB_HOST, WEB_PORT);

@@ -9,8 +9,19 @@
 import { getLogger } from '../logger.js';
 import { SENSORS, DEVICE } from '../sensorsMap.js';
 import { classify, rangeFor, GROUP_UNITS } from '../thresholds.js';
+import { computeAggregations } from './aggregations.js';
 
 const log = getLogger('reports.collector');
+
+// Limites fisicos por grupo: descartan lecturas imposibles del historico
+// (p.ej. humedad 119% de un sensor descalibrado) para que no contaminen stats,
+// agregaciones ni graficas.
+const PHYSICAL_LIMITS = { TEMP: [-20, 80], HUM: [0, 100] };
+function isPhysical(value, group) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return false;
+  const [lo, hi] = PHYSICAL_LIMITS[group] || [-Infinity, Infinity];
+  return value >= lo && value <= hi;
+}
 
 // Variables por grupo, derivadas del catalogo de sensores.
 function varsOfGroup(group) {
@@ -41,31 +52,6 @@ function statsOf(rows, group) {
     min: round1(min), max: round1(max), avg: round1(sum / values.length),
     n: values.length, time_outside_pct: Math.round((outside / values.length) * 100),
   };
-}
-
-// Agregaciones para graficas: promedio por dia y perfil por hora del dia.
-function aggregate(seriesRows) {
-  const byDay = new Map();   // 'YYYY-MM-DD' -> {sum,n,min,max}
-  const byHour = new Map();  // 0..23 -> {sum,n}
-  for (const r of seriesRows) {
-    if (typeof r.value !== 'number' || Number.isNaN(r.value)) continue;
-    const d = new Date(r.timestamp);
-    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const dd = byDay.get(day) || { sum: 0, n: 0, min: Infinity, max: -Infinity };
-    dd.sum += r.value; dd.n += 1; dd.min = Math.min(dd.min, r.value); dd.max = Math.max(dd.max, r.value);
-    byDay.set(day, dd);
-    const h = d.getHours();
-    const hh = byHour.get(h) || { sum: 0, n: 0 };
-    hh.sum += r.value; hh.n += 1; byHour.set(h, hh);
-  }
-  const daily = [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([date, v]) => ({ date, avg: round1(v.sum / v.n), min: round1(v.min), max: round1(v.max) }));
-  const hourlyProfile = [];
-  for (let h = 0; h < 24; h++) {
-    const v = byHour.get(h);
-    hourlyProfile.push({ hour: h, avg: v ? round1(v.sum / v.n) : null });
-  }
-  return { daily, hourly_profile: hourlyProfile };
 }
 
 /**
@@ -127,8 +113,8 @@ export async function collectPeriodData({ store, ubidots, alertLog }, startMs, e
   if (ubidots) {
     for (const group of ['TEMP', 'HUM']) {
       const vars = varsOfGroup(group);
+      const { low, high } = rangeFor(group);
       // Secuencial: el volumen es bajo (8 series) y evita saturar Ubidots.
-      const allRowsForAgg = [];
       for (const { var: varLabel, sensor } of vars) {
         let rowsV = [];
         try {
@@ -136,14 +122,16 @@ export async function collectPeriodData({ store, ubidots, alertLog }, startMs, e
         } catch (e) {
           log.warn(`history ${varLabel} fallo: ${e.message}`);
         }
+        // Descartar lecturas fisicamente imposibles (sensores descalibrados).
+        rowsV = rowsV.filter((r) => isPhysical(r.value, group));
         out.history[group][varLabel] = { sensor, ...statsOf(rowsV, group) };
         out.time_series[group].push({
           var: varLabel, sensor,
           data: rowsV.map((r) => [r.timestamp, round1(r.value)]),
         });
-        allRowsForAgg.push(...rowsV);
       }
-      out.aggregations[group] = aggregate(allRowsForAgg);
+      // Agregaciones sobre el PROMEDIO interior (1 serie limpia).
+      out.aggregations[group] = computeAggregations(out.time_series[group], low, high);
     }
   } else {
     log.warn('Sin cliente Ubidots: el reporte no incluira historico ni graficas de tendencia.');

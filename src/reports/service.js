@@ -3,6 +3,7 @@
 
 import { getLogger } from '../logger.js';
 import { collectPeriodData, currentRows } from './collector.js';
+import { generateCommentary } from './commentary.js';
 import {
   renderReport, saveReport, listReports, reportFilePath, closeBrowser,
 } from './render.js';
@@ -12,11 +13,14 @@ const log = getLogger('reports.service');
 const MAX_RANGE_MS = 31 * 86400 * 1000; // 31 dias
 
 export class ReportsService {
-  constructor({ store, ubidots = null, alertLog = null, telegram = null }) {
+  constructor({ store, ubidots = null, alertLog = null, telegram = null, agent = null }) {
     this.store = store;
     this.ubidots = ubidots;
     this.alertLog = alertLog;
     this.telegram = telegram;
+    // El agente IA (narrativa del reporte) puede inyectarse despues de construir
+    // el servicio — ver index.js (orden de creacion reports/tools/agent).
+    this.agent = agent;
   }
 
   /**
@@ -34,7 +38,9 @@ export class ReportsService {
       startMs, endMs,
     );
     const current = currentRows(this.store);
-    const buffers = await renderReport(data, current, title);
+    // Narrativa IA (con fallbacks estaticos si el agente no esta listo).
+    const commentary = await generateCommentary(this.agent, data);
+    const buffers = await renderReport(data, current, commentary, title);
     const summary = {
       transitions_to_abnormal: data.alerts.transitions_to_abnormal,
       jumps_total: data.alerts.jumps_total,
