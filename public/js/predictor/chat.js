@@ -1,14 +1,14 @@
 // Widget de chat IA: boton flotante (FAB) + panel deslizable.
-// Habla directo con POST /api/agent/chat (mismo servidor Express; sin sidecar).
+// Habla directo con POST api/agent/chat (mismo servidor Express; sin sidecar).
 // Historial en localStorage (max 30 mensajes); cada turno reenvia el history
 // al backend (el LLM no tiene memoria propia).
 //
 // Portado de tenebrios-node/public/js/predictor/chat.js, adaptado a Malinalco:
-//   - ENDPOINT same-server (no proxy /api/predictor/...).
+//   - ENDPOINT same-server (no proxy api/predictor/...).
 //   - Sugerencias por zonas de Malinalco.
 //   - Sin logica de "vista IA" (#view-ai): el atajo 'c' togglea el chat siempre.
 
-const ENDPOINT = '/api/agent/chat';
+const ENDPOINT = 'api/agent/chat';
 const STORAGE_KEY = 'malinalco-chat-history-v1';
 const MAX_HISTORY = 30;
 const REQUEST_TIMEOUT_MS = 205000;
@@ -194,12 +194,12 @@ function appendMessage(m, scroll = true) {
 }
 
 // Tarjeta de reporte PDF: preview PNG + metadata + boton descarga.
-// Las URLs del backend ya son same-server (/api/reports/<id>), sin reescritura.
+// Las URLs del backend ya son same-server (api/reports/<id>), sin reescritura.
 function renderReportCardInto(parentEl, report) {
     const card = document.createElement('div');
     card.className = 'ai-chat-report';
-    const downloadUrl = report.url || null;
-    const previewUrl = report.preview_url || null;
+    const downloadUrl = (report.url || "").replace(/^[/]/, "") || null;
+    const previewUrl = (report.preview_url || "").replace(/^[/]/, "") || null;
     const summary = report.summary || {};
     const alertsTxt = `${summary.transitions_to_abnormal ?? 0} alertas críticas, ${summary.jumps_total ?? 0} saltos`;
 

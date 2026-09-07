@@ -22,7 +22,7 @@ let snapshot = null;
 let mode = 'temp';
 
 // Edad maxima en minutos antes de marcar el dato como amber/red.
-// Se sobrescriben con los valores de /api/config (thresholds.warnMin/errorMin).
+// Se sobrescriben con los valores de api/config (thresholds.warnMin/errorMin).
 let warnMin = 5;
 let errorMin = 30;
 let lastTs = null; // timestamp ms del ultimo dato recibido
@@ -33,9 +33,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   setupModeButtons();
   initChat();
 
-  // /api/config primero: zonas (sidebar) + sensores fisicos (etiquetas 3D).
+  // api/config primero: zonas (sidebar) + sensores fisicos (etiquetas 3D).
   try {
-    const cfg = await (await fetch('/api/config')).json();
+    const cfg = await (await fetch('api/config')).json();
     setZones(cfg.zones);
     setSensors(cfg.sensors);
     setRanges(cfg.ranges);
@@ -51,20 +51,20 @@ window.addEventListener('DOMContentLoaded', async () => {
     colorbarSetMode(mode);
     prepareHeatVolume(cfg.sensors);
   } catch (e) {
-    console.error('Error cargando /api/config:', e);
+    console.error('Error cargando api/config:', e);
     setStatus('err', 'Error de configuracion');
     return;
   }
 
   // Hidratacion inicial con snapshot completo.
   try {
-    const data = await (await fetch('/api/data')).json();
+    const data = await (await fetch('api/data')).json();
     snapshot = data;
     cardsApplySnapshot(data);
     sceneApplySnapshot(data, mode);
     updateTimestamp(data.lastUpdate);
   } catch (e) {
-    console.warn('Error cargando /api/data:', e);
+    console.warn('Error cargando api/data:', e);
   }
 
   connectStream();
@@ -91,7 +91,7 @@ function setupModeButtons() {
 }
 
 function connectStream() {
-  const es = new EventSource('/api/stream');
+  const es = new EventSource('api/stream');
 
   es.addEventListener('open', () => setStatus('ok', 'Conectado'));
 
